@@ -1,98 +1,136 @@
-import mediapipe as mp
-import pykinect_azure as pykinect
 import cv2
+import numpy as np
+
+from src.camera import AzureKinect
 
 
-if __name__ == '__main__':
-    pykinect.initialize_libraries(track_body=False)
+def get_color_interval(color: str) -> tuple:
+    if color not in ["red", "green", "blue", "yellow", "black"]:
+        raise ValueError("Please provide a valid color. Colors can be red, green, blue, yellow or black.")
 
-    device_configuration = pykinect.default_configuration
-    device_configuration.color_format = pykinect.K4A_IMAGE_FORMAT_COLOR_BGRA32
-    device_configuration.color_resolution = pykinect.K4A_COLOR_RESOLUTION_720P
-    device_configuration.depth_mode = pykinect.K4A_DEPTH_MODE_WFOV_2X2BINNED
-    print(device_configuration)
+    if color == "red":
+        lower_bound = (0, 0, 100)
+        upper_bound = (100, 100, 255)
+    elif color == "green":
+        lower_bound = (0, 100, 0)
+        upper_bound = (100, 255, 100)
+    elif color == "blue":
+        lower_bound = (100, 0, 0)
+        upper_bound = (255, 100, 100)
+    elif color == "yellow":
+        lower_bound = (0, 0, 0)
+        upper_bound = (179, 45, 96)
+    elif color == "black":
+        lower_bound = (0, 0, 0)
+        upper_bound = (100, 100, 100)
 
-    # Start device
-    device = pykinect.start_device(config=device_configuration)
+    return lower_bound, upper_bound
 
-    cv2.namedWindow('Depth Image', cv2.WINDOW_NORMAL)
 
-    # Init mediapipe
-    mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+class Solver:
+    def __init__(
+        self,
+        camera: AzureKinect,
+        max_depth: float,
+    ):
+        self.camera = camera
+        self.max_depth = max_depth
 
-    mp_drawing = mp.solutions.drawing_utils
-    mp_drawing_styles = mp.solutions.drawing_styles
+    def start(self):
+        self.camera.start()
 
-    mp_face_detection = mp.solutions.face_detection
-    face_detection = mp_face_detection.FaceDetection(min_detection_confidence=0.5)
+    def process_ground_line_detection(
+        self,
+        color_image: np.ndarray,
+        ground_truth_line_color: str = "red",
+        area_threshold: int = 1000
+    ):
+        color_image_copy = color_image.copy()
 
-    mp_pose = mp.solutions.pose
-    pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        lab_image = cv2.cvtColor(color_image_copy, cv2.COLOR_BGR2LAB)
 
-    while True:
+        ret, threshold_image = cv2.threshold(lab_image[:, :, 2], 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-        # Get capture
-        capture = device.update()
+        # Draw contours
+        contours, _ = cv2.findContours(threshold_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area > area_threshold:
+                cv2.drawContours(color_image_copy, [contour], -1, (0, 255, 0), 2)
 
-        # Depth Image
-        # ret, depth_image = capture.get_colored_depth_image()
+        # Check if contour is a rectangle
+        corner_coordinates = []
+        for contour in contours:
+            perimeter = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+            if len(approx) == 4:
+                cv2.drawContours(color_image_copy, [approx], -1, (0, 0, 255), 2)
 
-        # Colored Image
-        ret, color_image = capture.get_color_image()
-        if color_image is not None:
-            # Infrared Image
-            # ret, ir_image = capture.get_ir_image()
+                for point in approx:
+                    corner_coordinates.append(point[0])
 
-            color_image = color_image[..., :3]
-            color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
+        return color_image_copy, corner_coordinates
 
-            # Detect hands, face and pose
-            hands_result = hands.process(color_image)
-            face_result = face_detection.process(color_image)
-            pose_result = pose.process(color_image)
+    def solve(self):
+        n_calibration_time = 50
+        calibration_counter = 0
+        calibration_coordinates = []
+        while True:
+            is_valid_image, color_image = self.camera.get_color_image()
+            is_valid_depth, depth_image = self.camera.get_depth_image()
 
-            if hands_result.multi_hand_landmarks:
-                for hand_landmarks in hands_result.multi_hand_landmarks:
-                    mp.solutions.drawing_utils.draw_landmarks(color_image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+            if is_valid_image and is_valid_depth:
+                # Process ground line detection
+                result_image, corner_coordinates = self.process_ground_line_detection(
+                    color_image=color_image,
+                    ground_truth_line_color="red",
+                    area_threshold=10000
+                )
+                color_image = np.ascontiguousarray(color_image)
 
-            if face_result.detections:
-                for detection in face_result.detections:
-                    mp.solutions.drawing_utils.draw_detection(color_image, detection)
+                if len(corner_coordinates) == 4 and calibration_counter < n_calibration_time:
+                    print(corner_coordinates)
+                    coord_array = np.array(corner_coordinates)
+                    calibration_coordinates.append(coord_array)
+                    calibration_counter += 1
+                    print(f"Calibration Counter: {calibration_counter}/{n_calibration_time}")
+                    color_image = result_image
 
-            if pose_result.pose_landmarks:
-                mp.solutions.drawing_utils.draw_landmarks(color_image, pose_result.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+                if calibration_counter >= n_calibration_time:
+                    # Max of 1000 calibration points
+                    coordinates = np.stack(calibration_coordinates, axis=0)
 
-            # Draw the hand landmarks
-            if hands_result.multi_hand_landmarks:
-                for hand_landmarks in hands_result.multi_hand_landmarks:
-                    mp_drawing.draw_landmarks(
-                        image=color_image,
-                        landmark_list=hand_landmarks,
-                        connections=mp_hands.HAND_CONNECTIONS,
-                        landmark_drawing_spec=mp_drawing_styles.get_default_hand_landmarks_style(),
-                        connection_drawing_spec=mp_drawing_styles.get_default_hand_connections_style())
+                    # Compute percentile
+                    coordinates = np.percentile(coordinates, 90, axis=0)
 
-            # Draw the face landmarks
-            if face_result.detections:
-                for detection in face_result.detections:
-                    mp_drawing.draw_detection(
-                        image=color_image,
-                        detection=detection,
-                        keypoint_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style())
+                    coordinates = np.round(coordinates).astype(np.int32)
+                    if len(coordinates.shape) == 3:
+                        coordinates = np.squeeze(coordinates, axis=0)
 
-            # Draw the pose landmarks
-            if pose_result.pose_landmarks:
-                mp_drawing.draw_landmarks(
-                    image=color_image,
-                    landmark_list=pose_result.pose_landmarks,
-                    connections=mp_pose.POSE_CONNECTIONS,
-                    landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
+                    print(coordinates)
 
-            # Zeigen Sie das Bild an
-            cv2.imshow('MediaPipe with Azure Kinect', color_image)
+                    display_coordinates = (
+                        np.array(coordinates[0]),
+                        np.array(coordinates[1]),
+                        np.array(coordinates[2]),
+                        np.array(coordinates[3])
+                    )
+                    for coordinate in display_coordinates:
+                        cv2.circle(color_image, tuple(coordinate), 5, (0, 0, 255), -1)
 
-            # Press q key to stop
-            if cv2.waitKey(1) == ord('q'):
+                        distance = depth_image[coordinate[1], coordinate[0]]
+                        cv2.putText(color_image, f"{distance:.2f}m", tuple(coordinate), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+                    # Draw dotted lines between the points
+                    cv2.line(color_image, tuple(display_coordinates[0]), tuple(display_coordinates[1]), (0, 0, 255), 2)
+                    cv2.line(color_image, tuple(display_coordinates[1]), tuple(display_coordinates[2]), (0, 0, 255), 2)
+                    cv2.line(color_image, tuple(display_coordinates[2]), tuple(display_coordinates[3]), (0, 0, 255), 2)
+                    cv2.line(color_image, tuple(display_coordinates[3]), tuple(display_coordinates[0]), (0, 0, 255), 2)
+
+                cv2.imshow("Image", color_image)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
+    def stop(self):
+        self.camera.stop()

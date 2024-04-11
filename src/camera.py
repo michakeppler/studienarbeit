@@ -2,9 +2,6 @@ import cv2
 
 import numpy as np
 import pykinect_azure as pykinect
-import matplotlib.pyplot as plt
-
-from src.point_cloud import PointCloudVisualizer
 
 
 class AzureKinect:
@@ -22,7 +19,7 @@ class AzureKinect:
         self.device_configuration.color_resolution = color_resolution
         self.device_configuration.depth_mode = depth_mode
 
-        self.device = None
+        self.device: pykinect.Device = None
 
     def start(self) -> pykinect.Device:
         self.device: pykinect.Device = pykinect.start_device(config=self.device_configuration)
@@ -34,23 +31,53 @@ class AzureKinect:
 
         self.device.close()
 
-    def get_capture(self) -> pykinect.Device.capture:
+    def get_device_calibration(self, calibration_type: str = "color") -> np.ndarray:
+        if self.device is None:
+            raise ValueError("Device is not initialized. Please call start() method first.")
+
+        calibration: pykinect.Calibration = self.device.calibration
+        if calibration_type == "color":
+            matrix = calibration.get_matrix(camera=pykinect.K4A_CALIBRATION_TYPE_COLOR)
+        elif calibration_type == "depth":
+            matrix = calibration.get_matrix(camera=pykinect.K4A_CALIBRATION_TYPE_DEPTH)
+        else:
+            raise ValueError("Invalid calibration type. Please choose between 'color' and 'depth'.")
+
+        return np.array(matrix, dtype=np.float64)
+
+    def get_capture(self) -> pykinect.Capture:
         if self.device is None:
             raise ValueError("Device is not initialized. Please call start() method first.")
 
         return self.device.update()
+
+    def get_imu_capture(self) -> pykinect.ImuSample:
+        if self.device is None:
+            raise ValueError("Device is not initialized. Please call start() method first.")
+
+        return self.device.update_imu()
+
+    def get_imu_accelerometer(self) -> np.ndarray:
+        imu_sample: pykinect.ImuSample = self.get_imu_capture()
+        accelerometer = imu_sample.get_acc()
+        return accelerometer
+
+    def get_imu_gyroscope(self) -> np.ndarray:
+        imu_sample: pykinect.ImuSample = self.get_imu_capture()
+        gyroscope = imu_sample.get_gyro()
+        return gyroscope
 
     def get_color_image(self) -> (bool, np.ndarray):
         capture: pykinect.Capture = self.get_capture()
         is_valid, color_image = capture.get_color_image()
         if is_valid:
             color_image = color_image[..., :3]
-            color_image = self.convert_to_cv2(self=self, image=color_image)
+            # color_image = self.convert_to_cv2(self=self, image=color_image)
         return is_valid, color_image
 
     def get_depth_image(self) -> (bool, np.ndarray):
         capture: pykinect.Capture = self.get_capture()
-        is_valid, depth_image = capture.get_depth_image()
+        is_valid, depth_image = capture.get_transformed_depth_image()
         return is_valid, depth_image
 
     def get_smoothed_depth_image(self) -> (bool, np.ndarray):
@@ -81,7 +108,7 @@ class AzureKinect:
 
     def get_point_cloud(self) -> (bool, np.ndarray):
         capture: pykinect.Capture = self.get_capture()
-        is_valid, point_cloud = capture.get_pointcloud()
+        is_valid, point_cloud = capture.get_transformed_pointcloud()
         return is_valid, point_cloud
 
     @staticmethod
@@ -90,25 +117,10 @@ class AzureKinect:
 
 
 if __name__ == '__main__':
-    azure_kinect = AzureKinect()
-    azure_kinect.start()
+    camera = AzureKinect()
 
-    visualizer = PointCloudVisualizer(
-        window_name="Azure Kinect Point Cloud Visualizer",
-        width=640,
-        height=480
-    )
+    camera.start()
+    calibration = camera.get_device_calibration()
+    print(calibration)
 
-    while True:
-        is_valid_di, depth_image = azure_kinect.get_depth_image()
-
-        if depth_image is not None:
-            plt.pcolormesh(depth_image, cmap='viridis')
-            plt.colorbar()
-            plt.show()
-            break
-
-        if cv2.waitKey(1) == ord('q'):
-            break
-
-    azure_kinect.stop()
+    camera.stop()
