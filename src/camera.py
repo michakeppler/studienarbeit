@@ -111,6 +111,54 @@ class AzureKinect:
         is_valid, point_cloud = capture.get_transformed_pointcloud()
         return is_valid, point_cloud
 
+    def get_transformed_depth_image(self) -> (bool, np.ndarray):
+        capture: pykinect.Capture = self.get_capture()
+        is_valid, transformed_depth_image = capture.get_transformed_depth_image()
+        return is_valid, transformed_depth_image
+
+    @staticmethod
+    def convert_2d_to_3d(
+        self,
+        source_point_2d,
+        source_depth,
+        source_camera,
+        target_camera
+    ):
+        calibration: pykinect.Calibration = self.device.calibration
+
+        point_3d = calibration.convert_2d_to_3d(
+            source_point2d=source_point_2d,
+            source_depth=source_depth,
+            source_camera=source_camera,
+            target_camera=target_camera
+        )
+        return point_3d
+
+    @staticmethod
+    def convert_3d_to_2d(
+        self,
+        source_point_3d,
+        source_camera,
+        target_camera
+    ):
+        calibration: pykinect.Calibration = self.device.calibration
+
+        point_2d = calibration.convert_3d_to_2d(
+            source_point3d=source_point_3d,
+            source_camera=source_camera,
+            target_camera=target_camera
+        )
+        return point_2d
+
+    @staticmethod
+    def get_calibration(self, device: pykinect.Device) -> pykinect.Calibration:
+        try:
+            calibration = device.calibration
+        except Exception as e:
+            raise e
+        return calibration
+
+
     @staticmethod
     def convert_to_cv2(self, image: np.ndarray) -> np.ndarray:
         return cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
