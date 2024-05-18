@@ -18,8 +18,7 @@ if __name__ == '__main__':
         track_body=False
     )
     solver = Solver(
-        camera=camera,
-        max_depth=3.0
+        camera=camera
     )
     solver.start()
     solver.solve()

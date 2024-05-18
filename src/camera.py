@@ -6,11 +6,11 @@ import pykinect_azure as pykinect
 
 class AzureKinect:
     def __init__(
-            self,
-            color_format: int = pykinect.K4A_IMAGE_FORMAT_COLOR_BGRA32,
-            color_resolution: int = pykinect.K4A_COLOR_RESOLUTION_720P,
-            depth_mode: int = pykinect.K4A_DEPTH_MODE_NFOV_2X2BINNED,
-            track_body: bool = False
+        self,
+        color_format: int = pykinect.K4A_IMAGE_FORMAT_COLOR_BGRA32,
+        color_resolution: int = pykinect.K4A_COLOR_RESOLUTION_720P,
+        depth_mode: int = pykinect.K4A_DEPTH_MODE_NFOV_2X2BINNED,
+        track_body: bool = False
     ):
         pykinect.initialize_libraries(track_body=track_body)
 
@@ -157,7 +157,6 @@ class AzureKinect:
         except Exception as e:
             raise e
         return calibration
-
 
     @staticmethod
     def convert_to_cv2(self, image: np.ndarray) -> np.ndarray:
