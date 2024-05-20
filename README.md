@@ -1,6 +1,9 @@
 # Official repository for the "Studienarbeit"
-##### Here we need some text, that desc the project in one short sentence.
+##### Author: Micha T. Keppler und Linus O. W. Schmidt
 
+### Table of Contents
+1. [Installation](#installation)
+2. [Examples](#examples)
 
 ## Installation
 To install the project, you need to run the following commands (req. anaconda - from requirements.txt):
@@ -23,15 +26,6 @@ pip install opencv-python
 pip install numpy
 pip install pykinect-azure
 ```
-
-### Table of Contents
-1. [Motivation](#motivation)
-2. [Examples](#examples)
-3. [Architecture](#architecture)
-4. [Experiment](#experiment)
-5. [Coming Soon](#coming-soon)
-
-## Motivation
 
 ## Examples
 Examples of the project can be found in the `examples` folder. 
@@ -64,7 +58,6 @@ if __name__ == '__main__':
     solver.stop()
 ```
 
-
 If you just wanna work with the camera:
 ```python
 from src.camera import AzureKinect
@@ -83,11 +76,3 @@ for i in range(5):
 # Stop
 camera.stop()
 ```
-
-## Architecture
-
-## Experiment
-Optional
-
-## Coming soon
-Optional
